@@ -27,10 +27,6 @@ Develop a **hybrid recommendation engine** that:
 
 ---
 
-## 🧰 Step 1: Define the Use Case and Dataset
-
-This step sets the foundation of the project by clearly outlining the recommendation scenario and selecting an appropriate dataset.
-
 ### Use Case:
 Design a recommendation engine that can suggest relevant products to users based on their browsing sessions, even when user or product history is sparse (cold-start).
 
@@ -49,22 +45,113 @@ Design a recommendation engine that can suggest relevant products to users based
 
 ---
 
-## 🧹 Step 2: Data Preprocessing & Feature Engineering
 
-This step transforms raw interaction logs and item metadata into clean, sessionized data suitable for model training.
+## 🔧 Features
 
-### Key Features:
-- **Chunked item processing**: Handles large `item_properties_part_1.csv` and `item_properties_part_2.csv` efficiently using streamed chunks to avoid memory overload.
-- **Session generation**: Users are assigned session IDs based on a 30-minute inactivity threshold.
-- **Feature encoding**: Converts `visitorid`, `itemid`, `categoryid`, and `brand` into numerical form using `LabelEncoder`.
-- **Safe merging**: Event data is merged with the latest item properties (one per `(itemid, property)`), then sorted chronologically.
+- Transformer-based sequence models: SASRec and BERT4Rec
+- Metrics: `Recall@K`, `NDCG@K`, `MAP@K`
+- Cold-start and category-level evaluation
+- REST API with FastAPI: `/recommend` and `/similar`
+- Streamlit dashboard for engagement and A/B analysis
+- SQLite mock database for users and items
+- Dockerized for easy deployment
+- GitHub Actions CI pipeline
 
-### Output:
-- A memory-efficient Parquet file: `data/processed/processed_sessions.parquet`
-- Format: one row per user interaction including session ID, timestamp, item, event type, category, and brand.
+---
 
-### Run the script:
+
+
+## 🚀 Getting Started
+
+### 1. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Preprocess the dataset
 ```bash
 python preprocessing.py
 ```
+
+### 3. Train models
+```bash
+python train_sequence_models.py
+```
+
+### 4. Evaluate performance
+```bash
+python sequence_eval.py \
+  --model-path models/sasrec.pt \
+  --model-name sasrec \
+  --save-metrics results/sasrec.json
+```
+
+### 5. Run the API server
+```bash
+uvicorn api_service:app --reload --port 8000
+```
+
+### 6. Run the dashboard
+```bash
+streamlit run dashboard.py
+```
+
+---
+
+## 📦 Docker
+
+### Build and run
+```bash
+docker build -t rec-api .
+docker run -p 8000:8000 rec-api
+```
+
+---
+
+## 🔍 Endpoints
+
+### `/recommend?user_id=123&top_k=10`
+Return top-k recommendations for a given user based on session history.
+
+### `/similar?product_id=456&top_k=10`
+Return top-k similar items to a given product.
+
+---
+
+## ✅ CI/CD
+
+- GitHub Actions runs tests, linter, and Docker build on each push
+- Automated checks in `.github/workflows/ci.yml`
+
+---
+
+## 📊 Dashboard Metrics
+
+- Model evaluation metrics over time
+- Clicks and conversions
+- Bandit vs. static strategy comparisons
+
+---
+
+## 📚 References
+
+- [SASRec](https://arxiv.org/abs/1808.09781)
+- [BERT4Rec](https://arxiv.org/abs/1904.06690)
+- [RecBole](https://github.com/RUCAIBox/RecBole)
+
+---
+
+
+
+## 🧑‍💻 Author
+
+Created by **Marzi Heidari**  
+Contact: [LinkedIn](https://www.linkedin.com/in/marzi-heidari) )
+
+---
+
+## 📄 License
+
+MIT License
+
 
