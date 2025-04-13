@@ -6,7 +6,6 @@ Supports /recommend and /similar endpoints using SQLite mock DB.
 """
 
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel
 import torch
 import sqlite3
 from pathlib import Path
@@ -14,9 +13,8 @@ from typing import List
 import logging
 
 import pandas as pd
-from torch.utils.data import DataLoader
 
-from models.train_sequence_models import SequenceDataset, get_model, MAX_SEQ_LEN
+from scripts.train_sequence_models import SequenceDataset, get_model, MAX_SEQ_LEN
 
 # === App Setup ===
 app = FastAPI(title="Recommendation API")
