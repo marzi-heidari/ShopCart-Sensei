@@ -2,6 +2,14 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
+import logging
+
+# === Logging Setup ===
+logging.basicConfig(
+    format='[%(asctime)s] %(levelname)s - %(message)s',
+    level=logging.INFO,
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # === Configuration ===
 RAW_DATA_PATH = Path("data/raw")
@@ -15,82 +23,90 @@ CATEGORIES_FILE = RAW_DATA_PATH / "category_tree.csv"
 OUTPUT_FILE = PROCESSED_DATA_PATH / "processed_sessions.parquet"
 
 SESSION_TIMEOUT_SECONDS = 1800
-CHUNK_SIZE = 50_000
-
 
 def load_data():
     """
-    Load the events and categories files. Item properties will be processed in chunks.
+    Load the raw event and category datasets.
     Returns:
-        Tuple of DataFrames: (events, categories)
+        events (pd.DataFrame): Raw user interaction logs.
+        categories (pd.DataFrame): Item category mapping (currently unused).
     """
+    logging.info("Loading events and category data...")
     events = pd.read_csv(EVENTS_FILE)
-    categories = pd.read_csv(CATEGORIES_FILE)  # Not used yet
+    categories = pd.read_csv(CATEGORIES_FILE)
     return events, categories
 
 
 def preprocess_events(events: pd.DataFrame) -> pd.DataFrame:
     """
-    Filter and format raw event data.
-    Keeps only 'view', 'addtocart', 'transaction' events and converts timestamps.
+    Filter and format the raw events data.
+    Filters to relevant event types and parses timestamps.
     Args:
-        events: Raw event DataFrame
+        events (pd.DataFrame): Raw events.
     Returns:
-        Cleaned DataFrame with parsed timestamps
+        pd.DataFrame: Cleaned and timestamped events.
     """
+    logging.info("Filtering event types and converting timestamps...")
     events = events[events['event'].isin(['view', 'addtocart', 'transaction'])].copy()
     events['timestamp'] = pd.to_datetime(events['timestamp'], unit='ms')
     return events
 
 
-def process_item_chunks(file_paths: list[Path]) -> pd.DataFrame:
+def process_item_properties(part1_file: Path, part2_file: Path) -> pd.DataFrame:
     """
-    Process item property files in chunks and retain only latest property values.
+    Load and merge item property files, keeping only the latest value per property.
     Args:
-        file_paths: List of CSV Paths (parts 1 and 2)
+        part1_file (Path): Path to first item property file.
+        part2_file (Path): Path to second item property file.
     Returns:
-        Aggregated and memory-efficient item features DataFrame
+        pd.DataFrame: Wide-format item metadata.
     """
-    combined_chunks = []
+    logging.info("Loading item properties into memory...")
+    df1 = pd.read_csv(part1_file)
+    df2 = pd.read_csv(part2_file)
+    items = pd.concat([df1, df2], ignore_index=True)
+    items['timestamp'] = pd.to_datetime(items['timestamp'], unit='ms')
 
-    for path in file_paths:
-        reader = pd.read_csv(path, chunksize=CHUNK_SIZE, usecols=['timestamp', 'itemid', 'property', 'value'])
-        for chunk in reader:
-            chunk['timestamp'] = pd.to_datetime(chunk['timestamp'], unit='ms')
-            combined_chunks.append(chunk)
-
-    all_items = pd.concat(combined_chunks, ignore_index=True)
-    del combined_chunks  # Free memory early
-
-    # Efficient sort and drop duplicates
-    all_items.sort_values(by=['itemid', 'property', 'timestamp'], inplace=True)
-    latest = all_items.drop_duplicates(subset=['itemid', 'property'], keep='last')
+    logging.info("Selecting most recent item properties...")
+    items.sort_values(by='timestamp', inplace=True)
+    latest = items.drop_duplicates(subset=['itemid', 'property'], keep='last')
     item_features = latest.pivot(index='itemid', columns='property', values='value').reset_index()
     return item_features
 
 
 def merge_and_sort(events: pd.DataFrame, item_features: pd.DataFrame) -> pd.DataFrame:
     """
-    Merge event logs with item features and sort by visitor ID and timestamp.
+    Merge item metadata into event logs and sort chronologically per user.
     Args:
-        events: Preprocessed event DataFrame
-        item_features: Cleaned item features DataFrame
+        events (pd.DataFrame): Preprocessed events.
+        item_features (pd.DataFrame): Metadata for each item.
     Returns:
-        Merged and sorted DataFrame
+        pd.DataFrame: Combined and sorted dataset.
     """
-    data = events.merge(item_features, how='left', on='itemid')
-    data.sort_values(by=['visitorid', 'timestamp'], inplace=True)
-    return data
+    logging.info("Merging entire event dataset with item features...")
+    merged = events.merge(item_features, how='left', on='itemid')
+    merged.sort_values(by=['visitorid', 'timestamp'], inplace=True)
+
+    logging.info("Verifying required columns for saving...")
+    expected_columns = ['session_id', 'visitorid', 'timestamp', 'itemid', 'event', 'categoryid']
+    missing_columns = [col for col in expected_columns if col not in merged.columns]
+    if missing_columns:
+        logging.warning(f"Missing expected columns: {missing_columns}. Filling with NaN.")
+        for col in missing_columns:
+            merged[col] = np.nan
+
+    return merged
 
 
 def generate_sessions(data: pd.DataFrame) -> pd.DataFrame:
     """
-    Assign session IDs to user interactions using a 30-minute inactivity threshold.
+    Assign session IDs based on inactivity gaps between user interactions.
     Args:
-        data: Sorted interaction DataFrame
+        data (pd.DataFrame): Merged and sorted interaction log.
     Returns:
-        DataFrame with new 'session_id' column
+        pd.DataFrame: Same data with a new 'session_id' column.
     """
+    logging.info("Generating session IDs...")
     data['prev_time'] = data.groupby('visitorid', group_keys=False)['timestamp'].shift(1)
     data['time_diff'] = (data['timestamp'] - data['prev_time']).dt.total_seconds()
     data['new_session'] = (data['time_diff'] > SESSION_TIMEOUT_SECONDS) | (data['time_diff'].isnull())
@@ -100,13 +116,14 @@ def generate_sessions(data: pd.DataFrame) -> pd.DataFrame:
 
 def encode_categoricals(data: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     """
-    Label-encode selected categorical columns.
+    Label encode specified categorical features to numeric format.
     Args:
-        data: DataFrame with categorical columns
-        columns: List of column names to encode
+        data (pd.DataFrame): Dataset with categorical columns.
+        columns (list[str]): Column names to encode.
     Returns:
-        DataFrame with encoded categorical columns
+        pd.DataFrame: Encoded DataFrame.
     """
+    logging.info("Encoding categorical features: %s", columns)
     for col in columns:
         if col in data.columns:
             le = LabelEncoder()
@@ -116,26 +133,35 @@ def encode_categoricals(data: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
 
 def save_data(data: pd.DataFrame, path: Path):
     """
-    Save processed data to a Parquet file with selected columns.
+    Save selected columns of the processed DataFrame to a Parquet file.
     Args:
-        data: Final processed DataFrame
-        path: Output file path
+        data (pd.DataFrame): Final dataset.
+        path (Path): Output file path.
     """
-    selected_columns = ['session_id', 'visitorid', 'timestamp', 'itemid', 'event', 'categoryid', 'brand']
+    logging.info(f"Saving processed data to {path}...")
+    selected_columns = ['session_id', 'visitorid', 'timestamp', 'itemid', 'event', 'categoryid']
     data[selected_columns].to_parquet(path)
-    print(f"✅ Preprocessing complete. Saved to {path}")
+    logging.info("✅ Preprocessing complete.")
 
 
 def main():
     """
-    End-to-end preprocessing pipeline with chunked and optimized item processing.
+    Execute the full preprocessing pipeline:
+    - Load data
+    - Filter and process events
+    - Extract item metadata
+    - Merge and sort
+    - Generate sessions
+    - Encode categoricals
+    - Save final dataset
     """
+    logging.info("Starting preprocessing pipeline...")
     events, _ = load_data()
     events = preprocess_events(events)
-    item_features = process_item_chunks([ITEMS_PART1_FILE, ITEMS_PART2_FILE])
+    item_features = process_item_properties(ITEMS_PART1_FILE, ITEMS_PART2_FILE)
     data = merge_and_sort(events, item_features)
     data = generate_sessions(data)
-    data = encode_categoricals(data, ['visitorid', 'itemid', 'categoryid', 'brand'])
+    data = encode_categoricals(data, ['visitorid', 'itemid', 'categoryid'])
     save_data(data, OUTPUT_FILE)
 
 
