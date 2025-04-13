@@ -12,8 +12,8 @@ logging.basicConfig(
 )
 
 # === Configuration ===
-RAW_DATA_PATH = Path("data/raw")
-PROCESSED_DATA_PATH = Path("data/processed")
+RAW_DATA_PATH = Path("../data/raw")
+PROCESSED_DATA_PATH = Path("../data/processed")
 PROCESSED_DATA_PATH.mkdir(parents=True, exist_ok=True)
 
 EVENTS_FILE = RAW_DATA_PATH / "events.csv"

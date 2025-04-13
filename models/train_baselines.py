@@ -22,7 +22,7 @@ logging.basicConfig(
 )
 
 # === Configuration ===
-PROCESSED_DATA_PATH = Path("data/processed")
+PROCESSED_DATA_PATH = Path("../data/processed")
 DATA_FILE = PROCESSED_DATA_PATH / "processed_sessions.parquet"
 TOP_K = 10
 
